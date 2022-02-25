@@ -1,0 +1,129 @@
+; Archivo: contador1.s
+; Dispositivo: PIC16F887
+; Autor: Paola Ayala Pineda
+; Compilador: pic-as (v2.35), MPLAB
+;
+; Programa: Incrementar en RB0 y decrementar en RB1
+; Hardware: LEDs en el puerto A, push pull down en RB0 y RB1 PORTB
+;
+; Creado 20 feb, 2022
+; Última modificación: 20 feb, 2022
+    
+PROCESSOR 16F887
+#include <xc.inc>
+    
+;configuration word 1
+ CONFIG FOSC=INTRC_NOCLKOUT  // Oscillador Interno sin salidas
+ CONFIG WDTE=OFF    // WDT disabled (reinicio repetitivo del pic)
+ CONFIG PWRTE=ON    // PWRT enabled (espera de 72ms al iniciar)
+ CONFIG MCLRE=OFF   // El pin de MCLR se utiliza como I/O
+ CONFIG CP=OFF	    // Sin protección de código 
+ CONFIG CPD=OFF	    // Sin protección de datos
+ 
+ CONFIG BOREN=OFF   // Sin reinicio cuando el voltaje de alimentación baja de 4V
+ CONFIG IESO=OFF    // Reinicio sin cambio de reloj de interno a externo
+ CONFIG FCMEN=OFF   // Cambio de reloj externo a interno en caso de fallo
+ CONFIG LVP=ON	    // Programación en bajo voltaje permitida
+ 
+;configuration word 2
+ CONFIG WRT=OFF	    // Protección de autoescritura por el programa desactivada
+ CONFIG BOR4V=BOR40V	// Reinicio abajo de 4V, (BOR21V=2.1V)
+ 
+ PSECT udata_shr	; common memory
+    W_TEMP:	DS 2 ; 2 bytes
+    STATUS_:	DS 2 ; 2 bytes
+
+    
+PSECT intVect, class=CODE, abs, delta=2
+ORG 100h  ; posición para el código
+;---------------INTERRUPT VECTOR--------------
+ORG  04h
+    
+push:
+    movwf   W_TEMP  ; guarda valores en STATUS
+    swapf   STATUS, W
+    movwf   STATUS_
+    
+isr:
+    btfsc   RBIF    ;revisar bandera
+    call    int_iocb  ; on_change del PORTB
+    
+pop:
+    swapf   STATUS_, W
+    movwf   STATUS
+    swapf   W_TEMP, F
+    swapf   W_TEMP, W
+    retfie
+    
+;-----------SUB RUTINAS DE INTERRUPCIÓN----------
+int_iocb:
+    banksel PORTA   ; revisa e incrementa si se deja de presionar el pushbutton
+    btfss   PORTB, 0
+    incf    PORTA
+    btfss   PORTB, 1
+    decf    PORTA
+    bcf	    RBIF    ; reinicia el conteo
+    return
+       
+
+ PSECT resVect, class=CODE, abs, delta=2  
+ ;---------------VECTOR RESET-----------------
+ORG  00h	; posición 0000h para el reset
+resetVec:
+    PAGESEL main
+    goto    main
+    
+ORG 100h  ; posición para el código
+ ;-------------configuración-------------
+ main:
+    call    config_iocb
+    call    config_io
+    call    config_int
+    banksel PORTA
+    
+ ;--------------loop principal-------------
+ loop:
+    goto    loop	; loop forever
+ 
+ ;--------------sub rutinas----------------
+
+config_iocb:
+    banksel TRISA
+    bsf	    IOCB, 0	 ; habilita la interrupción en el PORTB
+    bsf	    IOCB, 1
+    
+    banksel PORTA
+    movf    PORTB, W
+    bcf	    RBIF
+    return
+    
+config_io:
+    banksel ANSEL   ; banco 11
+    clrf    ANSEL   ; pines digitales
+    clrf    ANSELH
+    
+    banksel TRISA   ; banco 01
+    clrf    TRISA	; port A como salida
+    bsf	    TRISB, 0	; UP y DOWN como entradas
+    bsf	    TRISB, 1  
+    bcf	    OPTION_REG, 7 ; pull up
+    bsf	    WPUB, 0
+    bsf	    WPUB, 1
+
+   
+    banksel PORTA   ; banco 00
+    clrf    PORTA
+    clrf    PORTB
+
+    return
+  
+    
+config_int:
+    banksel PORTA
+    bsf	    GIE     ;INTCON
+    bsf	    RBIE    ;habilita la interrupción
+    bcf	    RBIF    ;cambio en la bandera
+    return
+    
+    
+END
